@@ -48,7 +48,7 @@ The base model weights are **never touched**. If the adapter ever degrades, it c
 
 ```
 ┌─────────────────────────────────────────────────┐
-│                  CHAT INTERFACE                  │
+│                  CHAT INTERFACE                 │
 │         Internal monologue · Memory tags        │
 └────────────────────┬────────────────────────────┘
                      │
@@ -177,7 +177,7 @@ The monologue can be toggled on or off at any time with `think on` / `think off`
 ## Project Structure
 
 ```
-lfm_memory/
+liquid_memory/
 ├── main.py                      # entry point, chat loop, display logic
 ├── config.py                    # all tunable parameters
 ├── scheduler.py                 # background decay + consolidation jobs
@@ -219,8 +219,8 @@ lfm_memory/
 ### Installation
 
 ```bash
-git clone <your-repo>
-cd lfm_memory
+git clone https://github.com/Ainix-dev/Project-Liquid-MNEMA.git
+cd liquid_memory
 
 python -m venv venv
 source venv/bin/activate
