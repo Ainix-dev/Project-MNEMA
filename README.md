@@ -89,7 +89,7 @@ The base model weights are **never touched.** If the adapter ever degrades, dele
 ```
 ╔═════════════════════════════════════════════════════════╗
 ║                    CHAT INTERFACE                       ║
-║         💭 Internal monologue  ·  📝 Memory tags       ║
+║         💭 Internal monologue  ·  📝 Memory tags        ║
 ╚══════════════════════╦══════════════════════════════════╝
                        ║
           ╔════════════▼════════════╗
@@ -99,9 +99,9 @@ The base model weights are **never touched.** If the adapter ever degrades, dele
           ╚════════════╦════════════╝
                        ║ [vivid] / [fading] memories injected
           ╔════════════▼════════════╗
-          ║  LFM2.5-1.2B-Instruct  ║  ← BASE WEIGHTS FROZEN ❄️
-          ║  + LoRA Adapter        ║  ← only this learns 🧠
-          ║  (0.07% trainable)     ║
+          ║  LFM2.5-1.2B-Instruct   ║  ← BASE WEIGHTS FROZEN ❄️
+          ║  + LoRA Adapter         ║  ← only this learns 🧠
+          ║  (0.07% trainable)      ║
           ╚════════════╦════════════╝
                        ║
           ╔════════════▼════════════╗
