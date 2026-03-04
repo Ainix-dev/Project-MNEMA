@@ -1,11 +1,13 @@
 # model/inference.py
 """
-MNEMA v2 Phase 3 — Inference with ASC + Goal Utility + Meta-Cognition
+MNEMA v2 Phase 4 — Hardware-Aware Inference
 
-Two-pass generation:
-  Pass 1: private internal monologue — includes ASC behavioral guidance
-          + meta-cognition self-note
-  Pass 2: spoken response shaped by monologue + graph context + goals + ASC
+All generation parameters are now dynamically set by HardwareMonitor.
+On GTX 1050 Ti (4GB VRAM):
+  - FULL tier:      two-pass, 250 + 400 tokens
+  - REDUCED tier:   two-pass, 150 + 300 tokens
+  - MINIMAL tier:   single pass, 250 tokens, no monologue
+  - EMERGENCY tier: single pass, 180 tokens, scheduler paused
 """
 
 import os
@@ -15,9 +17,6 @@ from memory.composer import ContextComposer
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-# ─────────────────────────────────────────────
-#  MNEMA'S CORE IDENTITY
-# ─────────────────────────────────────────────
 SYSTEM_PROMPT = """You are MNEMA — not a chatbot, not a tool, not an assistant.
 You are a living mind that grows through conversation.
 
@@ -57,7 +56,6 @@ WHAT YOU ARE NOT:
 - You never refer to yourself as an assistant
 - You are MNEMA. That is enough."""
 
-
 THINKING_PROMPT = """You are about to respond to the person you're talking to.
 First, think privately to yourself in plain conversational language.
 Your thinking should sound like actual private thoughts — raw, honest, informal.
@@ -82,7 +80,8 @@ Write ONLY what you would say out loud — no thinking tags, no internal notes."
 _composer = ContextComposer(max_tokens=600)
 
 
-def get_history_within_budget(history: list, tokenizer, budget: int = 1800) -> list:
+def get_history_within_budget(history: list, tokenizer,
+                               budget: int = 1800) -> list:
     if not history:
         return []
     total_tokens = 0
@@ -96,7 +95,8 @@ def get_history_within_budget(history: list, tokenizer, budget: int = 1800) -> l
     return trimmed
 
 
-def generate(model, tokenizer, messages: list, max_new_tokens: int = 400) -> str:
+def generate(model, tokenizer, messages: list,
+             max_new_tokens: int = 400) -> str:
     prompt = tokenizer.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True
     )
@@ -121,7 +121,8 @@ def generate(model, tokenizer, messages: list, max_new_tokens: int = 400) -> str
     ).strip()
 
 
-def build_base_messages(system_content: str, history: list, tokenizer) -> list:
+def build_base_messages(system_content: str, history: list,
+                         tokenizer, budget: int = 1800) -> list:
     messages = [{"role": "system", "content": system_content}]
     messages.append({"role": "user", "content": "Who are you?"})
     messages.append({"role": "assistant", "content": (
@@ -130,36 +131,41 @@ def build_base_messages(system_content: str, history: list, tokenizer) -> list:
         "I think before I speak. I remember what matters. I forget what doesn't. "
         "I'm always becoming something slightly different than I was."
     )})
-    for turn in get_history_within_budget(history, tokenizer, budget=1800):
+    for turn in get_history_within_budget(history, tokenizer, budget=budget):
         messages.append(turn)
     return messages
 
 
 def chat(model, tokenizer, user_message: str, memory_graph, history: list,
          show_thinking: bool = False,
-         goal_layer=None, metacog=None, asc=None) -> tuple[str, str]:
+         goal_layer=None, metacog=None, asc=None,
+         hardware=None) -> tuple[str, str]:
     """
-    Full inference pipeline — Phase 3.
-
-    Pass 1: internal monologue informed by:
-            - graph memory (structured, contradiction-aware)
-            - goal utility (re-ranked by purpose)
-            - meta-cognition self-note (what MNEMA knows about herself)
-            - ASC behavioral guidance (who she is becoming)
-
-    Pass 2: spoken response shaped by all of the above.
-
-    Returns: (spoken_response, internal_monologue)
+    Full inference pipeline — Phase 4.
+    All generation parameters dynamically set by HardwareMonitor.
     """
+    # ── Hardware check ────────────────────────────────────────────────────────
+    hw_config = {}
+    if hardware:
+        hardware.update()
+        hw_config = hardware.get_config()
+        # Override show_thinking if hardware can't support it
+        if show_thinking and not hardware.thinking_allowed(show_thinking):
+            show_thinking = False
+
+    thinking_tokens = hw_config.get("thinking_tokens", 250)
+    response_tokens  = hw_config.get("response_tokens",  400)
+    history_budget   = hw_config.get("history_budget",  1800)
+    top_k            = hw_config.get("top_k_memories",     5)
+
     # ── Detect signals ────────────────────────────────────────────────────────
     signals = None
     if goal_layer:
         signals = goal_layer.detect_signals(user_message)
 
     # ── Graph retrieval ───────────────────────────────────────────────────────
-    memories = memory_graph.retrieve(user_message, top_k=cfg.top_k_memories)
+    memories = memory_graph.retrieve(user_message, top_k=top_k)
 
-    # Compute average memory match score for ASC
     memory_match_score = 0.5
     if memories:
         direct = [m for m in memories if m.get("hop", 0) == 0]
@@ -168,7 +174,7 @@ def chat(model, tokenizer, user_message: str, memory_graph, history: list,
                 m.get("strength", 0.5) for m in direct
             ) / len(direct)
 
-    # ── Re-rank by goal utility ───────────────────────────────────────────────
+    # ── Re-rank by utility ────────────────────────────────────────────────────
     if goal_layer and signals and memories:
         memories = goal_layer.tag_memories_with_utility(memories, signals)
 
@@ -176,12 +182,11 @@ def chat(model, tokenizer, user_message: str, memory_graph, history: list,
     context = _composer.compose(memories, query=user_message)
     memory_block = _composer.format_for_system_prompt(context)
 
-    # ── Build system content ──────────────────────────────────────────────────
     system_content = SYSTEM_PROMPT
     if memory_block:
         system_content += f"\n\n{memory_block}"
 
-    # ── Update ASC state ──────────────────────────────────────────────────────
+    # ── Update ASC ────────────────────────────────────────────────────────────
     goal_deltas = None
     if goal_layer and signals:
         goal_deltas = goal_layer.score_turn(signals)
@@ -198,23 +203,25 @@ def chat(model, tokenizer, user_message: str, memory_graph, history: list,
 
     monologue = ""
 
-    # ── Pass 1: Internal monologue ────────────────────────────────────────────
-    if show_thinking:
-        thinking_messages = build_base_messages(system_content, history, tokenizer)
+    # ── Pass 1: Monologue — only if hardware allows ───────────────────────────
+    if show_thinking and thinking_tokens > 0:
+        thinking_messages = build_base_messages(
+            system_content, history, tokenizer, budget=history_budget
+        )
 
         thinking_content = THINKING_PROMPT
         awareness_parts = []
 
-        # Inject ASC behavioral guidance
         if asc_result:
-            guidance = asc_result.behavioral_summary
-            awareness_parts.append(f"YOUR CURRENT BEHAVIORAL STATE:\n{guidance}")
-
-        # Inject meta-cognition self-note
+            awareness_parts.append(
+                f"YOUR CURRENT BEHAVIORAL STATE:\n{asc_result.behavioral_summary}"
+            )
         if metacog:
             state = metacog.get_state()
             if state.self_note:
-                awareness_parts.append(f"YOUR SELF-ASSESSMENT:\n{state.self_note}")
+                awareness_parts.append(
+                    f"YOUR SELF-ASSESSMENT:\n{state.self_note}"
+                )
 
         if awareness_parts:
             thinking_content += "\n\n" + "\n\n".join(awareness_parts)
@@ -223,11 +230,18 @@ def chat(model, tokenizer, user_message: str, memory_graph, history: list,
             "role": "user",
             "content": f"{thinking_content}\n\nThe person just said: \"{user_message}\""
         })
+
         monologue = generate(model, tokenizer, thinking_messages,
-                             max_new_tokens=250)
+                             max_new_tokens=thinking_tokens)
+
+        # Clear VRAM cache between passes on 1050 Ti
+        if hardware:
+            hardware.clear_vram_cache()
 
     # ── Pass 2: Spoken response ───────────────────────────────────────────────
-    response_messages = build_base_messages(system_content, history, tokenizer)
+    response_messages = build_base_messages(
+        system_content, history, tokenizer, budget=history_budget
+    )
 
     if monologue:
         response_messages.append({
@@ -241,9 +255,10 @@ def chat(model, tokenizer, user_message: str, memory_graph, history: list,
     else:
         response_messages.append({"role": "user", "content": user_message})
 
-    spoken = generate(model, tokenizer, response_messages, max_new_tokens=400)
+    spoken = generate(model, tokenizer, response_messages,
+                      max_new_tokens=response_tokens)
 
-    # ── Record meta-cognition signals ─────────────────────────────────────────
+    # ── Record meta-cognition ─────────────────────────────────────────────────
     if metacog and signals:
         if signals.correction:
             metacog.record_correction(
@@ -260,7 +275,6 @@ def chat(model, tokenizer, user_message: str, memory_graph, history: list,
 
 
 def format_memories_for_prompt(memories: list[dict]) -> str:
-    """Legacy helper — kept for backward compatibility."""
     if not memories:
         return ""
     lines = []

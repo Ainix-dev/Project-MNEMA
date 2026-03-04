@@ -34,6 +34,16 @@ class MemoryScheduler:
         self.scheduler.start()
         print(f"[Scheduler] Started. Decay every {cfg.decay_interval_hours}h, consolidation check every 30min.")
 
+    def pause(self):
+        """Pause background tasks during high memory pressure."""
+        if self.scheduler.running:
+            self.scheduler.pause()
+
+    def resume(self):
+        """Resume background tasks when memory pressure eases."""
+        if self.scheduler.running:
+            self.scheduler.resume()
+
     def stop(self):
         self.scheduler.shutdown()
 

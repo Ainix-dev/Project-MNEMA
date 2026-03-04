@@ -1,10 +1,11 @@
-# main.py — MNEMA v2 Phase 3
+# main.py — MNEMA v2 Phase 4 (Complete)
 from model.loader import load_model_and_tokenizer, verify_base_frozen
 from memory.graph import RelationalMemoryGraph
 from memory.extractor import MemoryExtractor
 from memory.goals import GoalUtilityLayer
 from memory.metacog import MetaCognition
 from memory.asc import AdaptiveStateCore
+from memory.hardware import HardwareMonitor
 from model.inference import chat
 from scheduler import MemoryScheduler
 
@@ -27,6 +28,7 @@ def main():
     goal_layer   = GoalUtilityLayer()
     metacog      = MetaCognition()
     asc          = AdaptiveStateCore()
+    hardware     = HardwareMonitor(check_every_n_turns=3)
 
     scheduler = MemoryScheduler(memory_graph, model, tokenizer)
     scheduler.start()
@@ -34,12 +36,19 @@ def main():
     conversation_history = []
     turn_counter = 0
 
+    # Show initial hardware tier
+    snap = hardware._last_snapshot
+    if snap:
+        print(f"  Hardware: {snap.tier} tier "
+              f"({snap.vram_free_gb:.2f}GB VRAM free)\n")
+
     print("Commands:")
     print("  memory    → memory graph nodes")
     print("  graph     → graph stats + contradictions")
     print("  goals     → goal performance scores")
     print("  metacog   → self-modeling state")
-    print("  asc       → adaptive state core — who MNEMA is becoming")
+    print("  asc       → adaptive behavioral state")
+    print("  hw        → hardware status + active tier")
     print("  think on  → show inner monologue")
     print("  think off → hide inner monologue")
     print("  clear     → wipe memory")
@@ -81,9 +90,17 @@ def main():
                 print(asc.display_state())
                 continue
 
+            if user_input.lower() == "hw":
+                print(hardware.display_status())
+                continue
+
             if user_input.lower() == "think on":
                 SHOW_THINKING = True
-                print("  [Inner monologue visible]\n")
+                if not hardware.thinking_allowed(True):
+                    print("  [Monologue requested but VRAM is too low — "
+                          "will enable when headroom improves]\n")
+                else:
+                    print("  [Inner monologue visible]\n")
                 continue
 
             if user_input.lower() == "think off":
@@ -97,6 +114,12 @@ def main():
                 continue
 
             turn_counter += 1
+
+            # ── Pause scheduler if hardware demands it ────────────────────────
+            if hardware.should_pause_scheduler():
+                scheduler.pause()
+            else:
+                scheduler.resume()
 
             # ── Extract and store memories ────────────────────────────────────
             new_memories = extractor.extract(user_input, turn_counter)
@@ -118,7 +141,8 @@ def main():
                 show_thinking=SHOW_THINKING,
                 goal_layer=goal_layer,
                 metacog=metacog,
-                asc=asc
+                asc=asc,
+                hardware=hardware
             )
 
             # ── Display ────────────────────────────────────────────────────────
@@ -137,7 +161,6 @@ def main():
     except KeyboardInterrupt:
         print("\n\n  Goodbye.")
     finally:
-        # Save ASC state on exit
         asc._save_state(turn_counter)
         scheduler.stop()
 
@@ -167,7 +190,6 @@ def _show_graph_stats(graph: RelationalMemoryGraph):
         print(f"  Edge breakdown:")
         for edge_type, count in stats['edge_breakdown'].items():
             print(f"    {edge_type:<15} {count}")
-
     contradictions = graph.get_contradictions()
     if contradictions:
         print(f"\n  ── Resolved Contradictions ──")
@@ -186,10 +208,8 @@ def _show_goals(goal_layer: GoalUtilityLayer):
         bar = "█" * bar_len + "░" * (20 - bar_len)
         print(f"  {bar} {data['score']:.2f} {goal_id} ({data['trend']})")
         print(f"    {data['description']}")
-    weakest = goal_layer.get_weakest_goal()
-    strongest = goal_layer.get_strongest_goal()
-    print(f"\n  Strongest: {strongest}")
-    print(f"  Needs work: {weakest}\n")
+    print(f"\n  Strongest:  {goal_layer.get_strongest_goal()}")
+    print(f"  Needs work: {goal_layer.get_weakest_goal()}\n")
 
 
 def _clear_memory():
