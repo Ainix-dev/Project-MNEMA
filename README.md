@@ -437,16 +437,6 @@ This project believes **the combination is the contribution**. Every component h
 
 ---
 
-## ◈ Roadmap
-
-- [ ] 🕸️ Relational knowledge graph between memories
-- [ ] ❤️ Emotional importance tagging via conversation signals
-- [ ] 📄 Document RAG as a stable reference collection (no decay)
-- [ ] 🔀 Dual LoRA adapters — short-term fast / long-term slow
-- [ ] 🌐 Web interface
-- [ ] 📊 Formal benchmark suite vs pure RAG and pure LoRA baselines
-- [ ] 📝 Ablation study for potential publication
-
 ## ◈ MNEMA v2 Roadmap
 
 Issue 1: "[v2] Relational Memory Graph — graph structure for episodic memory"
@@ -454,6 +444,7 @@ Issue 2: "[v2] Goal & Utility Layer — purpose-driven memory retrieval"
 Issue 3: "[v2] Multi-Speed Forgetting — five-tier memory timescales"
 Issue 4: "[v2] Self-Modeling — confidence tracking and error memory"
 Issue 5: "[v2] Adaptive State Core — continuous behavioral state vector"
+
 ---
 
 ## ◈ Acknowledgements
