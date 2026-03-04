@@ -1,10 +1,11 @@
 # model/inference.py
 """
-MNEMA v2 Phase 2 — Inference with Goal Utility + Meta-Cognition
+MNEMA v2 Phase 3 — Inference with ASC + Goal Utility + Meta-Cognition
 
 Two-pass generation:
-  Pass 1: private internal monologue — includes self-awareness state
-  Pass 2: spoken response informed by monologue + graph context + goals
+  Pass 1: private internal monologue — includes ASC behavioral guidance
+          + meta-cognition self-note
+  Pass 2: spoken response shaped by monologue + graph context + goals + ASC
 """
 
 import os
@@ -68,7 +69,7 @@ Think about:
 - How should I pitch my tone — casual, warm, deep, light?
 - What do I genuinely think or feel about this topic?
 - What's the most honest thing I can say?
-- Given my self-assessment below — where should I be careful or confident?
+- Given my current state and self-assessment — where should I be careful?
 
 Sound like a person thinking mid-thought, not a philosopher writing an essay.
 Write ONLY your private thoughts. Nothing else."""
@@ -136,13 +137,21 @@ def build_base_messages(system_content: str, history: list, tokenizer) -> list:
 
 def chat(model, tokenizer, user_message: str, memory_graph, history: list,
          show_thinking: bool = False,
-         goal_layer=None, metacog=None) -> tuple[str, str]:
+         goal_layer=None, metacog=None, asc=None) -> tuple[str, str]:
     """
-    Two-pass inference with graph memory, goal utility, and meta-cognition.
+    Full inference pipeline — Phase 3.
+
+    Pass 1: internal monologue informed by:
+            - graph memory (structured, contradiction-aware)
+            - goal utility (re-ranked by purpose)
+            - meta-cognition self-note (what MNEMA knows about herself)
+            - ASC behavioral guidance (who she is becoming)
+
+    Pass 2: spoken response shaped by all of the above.
 
     Returns: (spoken_response, internal_monologue)
     """
-    # ── Detect signals for goal scoring ──────────────────────────────────────
+    # ── Detect signals ────────────────────────────────────────────────────────
     signals = None
     if goal_layer:
         signals = goal_layer.detect_signals(user_message)
@@ -150,7 +159,16 @@ def chat(model, tokenizer, user_message: str, memory_graph, history: list,
     # ── Graph retrieval ───────────────────────────────────────────────────────
     memories = memory_graph.retrieve(user_message, top_k=cfg.top_k_memories)
 
-    # ── Re-rank by utility if goal layer is active ────────────────────────────
+    # Compute average memory match score for ASC
+    memory_match_score = 0.5
+    if memories:
+        direct = [m for m in memories if m.get("hop", 0) == 0]
+        if direct:
+            memory_match_score = sum(
+                m.get("strength", 0.5) for m in direct
+            ) / len(direct)
+
+    # ── Re-rank by goal utility ───────────────────────────────────────────────
     if goal_layer and signals and memories:
         memories = goal_layer.tag_memories_with_utility(memories, signals)
 
@@ -163,20 +181,43 @@ def chat(model, tokenizer, user_message: str, memory_graph, history: list,
     if memory_block:
         system_content += f"\n\n{memory_block}"
 
+    # ── Update ASC state ──────────────────────────────────────────────────────
+    goal_deltas = None
+    if goal_layer and signals:
+        goal_deltas = goal_layer.score_turn(signals)
+
+    asc_result = None
+    if asc:
+        asc_result = asc.update(
+            turn=len(history) // 2,
+            user_message=user_message,
+            goal_deltas=goal_deltas,
+            memory_match_score=memory_match_score,
+            signals=signals
+        )
+
     monologue = ""
 
-    # ── Pass 1: Internal monologue with self-awareness ────────────────────────
+    # ── Pass 1: Internal monologue ────────────────────────────────────────────
     if show_thinking:
         thinking_messages = build_base_messages(system_content, history, tokenizer)
 
-        # Inject meta-cognition self-note into thinking prompt
         thinking_content = THINKING_PROMPT
+        awareness_parts = []
+
+        # Inject ASC behavioral guidance
+        if asc_result:
+            guidance = asc_result.behavioral_summary
+            awareness_parts.append(f"YOUR CURRENT BEHAVIORAL STATE:\n{guidance}")
+
+        # Inject meta-cognition self-note
         if metacog:
             state = metacog.get_state()
             if state.self_note:
-                thinking_content += (
-                    f"\n\nYOUR SELF-ASSESSMENT:\n{state.self_note}"
-                )
+                awareness_parts.append(f"YOUR SELF-ASSESSMENT:\n{state.self_note}")
+
+        if awareness_parts:
+            thinking_content += "\n\n" + "\n\n".join(awareness_parts)
 
         thinking_messages.append({
             "role": "user",
@@ -202,10 +243,6 @@ def chat(model, tokenizer, user_message: str, memory_graph, history: list,
 
     spoken = generate(model, tokenizer, response_messages, max_new_tokens=400)
 
-    # ── Score turn against goals ──────────────────────────────────────────────
-    if goal_layer and signals:
-        goal_layer.score_turn(signals)
-
     # ── Record meta-cognition signals ─────────────────────────────────────────
     if metacog and signals:
         if signals.correction:
@@ -216,7 +253,6 @@ def chat(model, tokenizer, user_message: str, memory_graph, history: list,
             )
         if signals.positive:
             metacog.record_positive(turn=len(history) // 2)
-        # Record memory access for types retrieved
         for mem in memories[:3]:
             metacog.record_access(mem.get("type", "fact"))
 

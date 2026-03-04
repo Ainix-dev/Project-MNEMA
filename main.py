@@ -1,10 +1,10 @@
-# main.py — MNEMA v2 Phase 2
-import sys
+# main.py — MNEMA v2 Phase 3
 from model.loader import load_model_and_tokenizer, verify_base_frozen
 from memory.graph import RelationalMemoryGraph
 from memory.extractor import MemoryExtractor
 from memory.goals import GoalUtilityLayer
 from memory.metacog import MetaCognition
+from memory.asc import AdaptiveStateCore
 from model.inference import chat
 from scheduler import MemoryScheduler
 
@@ -26,6 +26,7 @@ def main():
     extractor    = MemoryExtractor()
     goal_layer   = GoalUtilityLayer()
     metacog      = MetaCognition()
+    asc          = AdaptiveStateCore()
 
     scheduler = MemoryScheduler(memory_graph, model, tokenizer)
     scheduler.start()
@@ -34,10 +35,11 @@ def main():
     turn_counter = 0
 
     print("Commands:")
-    print("  memory    → inspect memory graph")
+    print("  memory    → memory graph nodes")
     print("  graph     → graph stats + contradictions")
     print("  goals     → goal performance scores")
     print("  metacog   → self-modeling state")
+    print("  asc       → adaptive state core — who MNEMA is becoming")
     print("  think on  → show inner monologue")
     print("  think off → hide inner monologue")
     print("  clear     → wipe memory")
@@ -73,6 +75,10 @@ def main():
 
             if user_input.lower() == "metacog":
                 print(metacog.display_summary())
+                continue
+
+            if user_input.lower() == "asc":
+                print(asc.display_state())
                 continue
 
             if user_input.lower() == "think on":
@@ -111,7 +117,8 @@ def main():
                 memory_graph, conversation_history,
                 show_thinking=SHOW_THINKING,
                 goal_layer=goal_layer,
-                metacog=metacog
+                metacog=metacog,
+                asc=asc
             )
 
             # ── Display ────────────────────────────────────────────────────────
@@ -130,6 +137,8 @@ def main():
     except KeyboardInterrupt:
         print("\n\n  Goodbye.")
     finally:
+        # Save ASC state on exit
+        asc._save_state(turn_counter)
         scheduler.stop()
 
 
