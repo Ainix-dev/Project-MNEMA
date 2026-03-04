@@ -1,0 +1,17 @@
+.env
+
+# Model weights — too large for GitHub
+lfm-instruct-dynamic/
+
+# Runtime data — personal to your machine
+data/chroma/
+data/memory.db
+data/lora_adapter/
+data/baseline_eval.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
