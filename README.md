@@ -308,7 +308,6 @@ lfm_memory/
 ## ◈ Setup
 
 ### Requirements
-
 ```
 Python     3.10+
 VRAM       4GB+  (CPU-only also works, slower)
@@ -317,44 +316,38 @@ CUDA       11.8 or 12.1 recommended
 ```
 
 ### Installation
-
 ```bash
-git clone https://github.com/YOUR_USERNAME/mnema.git
-cd mnema
+# 1. Clone the repo
+git clone https://github.com/Ainix-dev/Project-Liquid-MNEMA.git
+cd Project-Liquid-MNEMA
 
+# 2. Create virtual environment
 python -m venv venv
 source venv/bin/activate          # Linux / Mac
 # venv\Scripts\activate           # Windows
 
-# PyTorch — match your CUDA version
+# 3. Install PyTorch — match your CUDA version
+# CUDA 12.1:
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# CUDA 11.8:
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+# CPU only:
+pip install torch torchvision
 
-# Dependencies
-pip install "transformers>=4.55.0" "peft>=0.12.0" "accelerate>=0.34.0"
-pip install "bitsandbytes>=0.43.0" "chromadb>=0.5.5"
-pip install "sentence-transformers>=3.0.0" "apscheduler>=3.10.4"
-pip install sqlalchemy numpy scipy
-```
+# 4. Install dependencies
+pip install -r requirements.txt
 
-### Download Model
+# 5. Download model + auto-create .env
+python setup.py
 
-```bash
-huggingface-cli download LiquidAI/LFM2.5-1.2B-Instruct \
-  --local-dir ./lfm-instruct-dynamic
-```
-
-### First Run
-
-```bash
-# Capture baseline performance (run once only — before first chat)
+# 6. Capture baseline (run once only — before first chat)
 python run_baseline.py
 
-# Start MNEMA
+# 7. Start MNEMA
 python main.py
 ```
 
 ### ⚡ 4GB GPU Configuration
-
 ```python
 # config.py
 load_in_4bit: bool = True    # cuts VRAM usage ~2.5GB → ~1GB
