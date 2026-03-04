@@ -1,13 +1,15 @@
-# main.py — MNEMA v2
+# main.py — MNEMA v2 Phase 2
 import sys
 from model.loader import load_model_and_tokenizer, verify_base_frozen
 from memory.graph import RelationalMemoryGraph
 from memory.extractor import MemoryExtractor
+from memory.goals import GoalUtilityLayer
+from memory.metacog import MetaCognition
 from model.inference import chat
 from scheduler import MemoryScheduler
 
 # ── Display settings ──────────────────────────────────────────────────────────
-SHOW_THINKING  = True
+SHOW_THINKING    = True
 SHOW_MEMORY_TAGS = True
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -20,9 +22,10 @@ def main():
     model, tokenizer = load_model_and_tokenizer()
     verify_base_frozen(model)
 
-    # v2: use RelationalMemoryGraph instead of flat MemoryStore
     memory_graph = RelationalMemoryGraph()
-    extractor = MemoryExtractor()
+    extractor    = MemoryExtractor()
+    goal_layer   = GoalUtilityLayer()
+    metacog      = MetaCognition()
 
     scheduler = MemoryScheduler(memory_graph, model, tokenizer)
     scheduler.start()
@@ -30,12 +33,15 @@ def main():
     conversation_history = []
     turn_counter = 0
 
-    print("Type 'quit'     → exit")
-    print("Type 'memory'   → inspect memory graph")
-    print("Type 'graph'    → show graph stats")
-    print("Type 'think on' → show inner monologue")
-    print("Type 'think off'→ hide inner monologue")
-    print("Type 'clear'    → wipe memory\n")
+    print("Commands:")
+    print("  memory    → inspect memory graph")
+    print("  graph     → graph stats + contradictions")
+    print("  goals     → goal performance scores")
+    print("  metacog   → self-modeling state")
+    print("  think on  → show inner monologue")
+    print("  think off → hide inner monologue")
+    print("  clear     → wipe memory")
+    print("  quit      → exit\n")
 
     global SHOW_THINKING
 
@@ -61,6 +67,14 @@ def main():
                 _show_graph_stats(memory_graph)
                 continue
 
+            if user_input.lower() == "goals":
+                _show_goals(goal_layer)
+                continue
+
+            if user_input.lower() == "metacog":
+                print(metacog.display_summary())
+                continue
+
             if user_input.lower() == "think on":
                 SHOW_THINKING = True
                 print("  [Inner monologue visible]\n")
@@ -78,7 +92,7 @@ def main():
 
             turn_counter += 1
 
-            # ── Extract and store memories in the graph ───────────────────────
+            # ── Extract and store memories ────────────────────────────────────
             new_memories = extractor.extract(user_input, turn_counter)
             for mem in new_memories:
                 memory_graph.add(
@@ -95,7 +109,9 @@ def main():
             spoken, monologue = chat(
                 model, tokenizer, user_input,
                 memory_graph, conversation_history,
-                show_thinking=SHOW_THINKING
+                show_thinking=SHOW_THINKING,
+                goal_layer=goal_layer,
+                metacog=metacog
             )
 
             # ── Display ────────────────────────────────────────────────────────
@@ -127,7 +143,7 @@ def _show_memories(graph: RelationalMemoryGraph):
         bar_len = int(mem["strength"] * 20)
         bar = "█" * bar_len + "░" * (20 - bar_len)
         print(f"  {bar} {mem['strength']:.2f} [{mem['type']}] "
-              f"{mem['content'][:60]}...")
+              f"{mem['content'][:55]}...")
     print()
 
 
@@ -147,10 +163,24 @@ def _show_graph_stats(graph: RelationalMemoryGraph):
     if contradictions:
         print(f"\n  ── Resolved Contradictions ──")
         for c in contradictions[:5]:
-            print(f"  SUPERSEDED: {c['older_content'][:50]}...")
-            print(f"  CURRENT:    {c['newer_content'][:50]}...")
+            print(f"  SUPERSEDED: {c['older_content'][:55]}...")
+            print(f"  CURRENT:    {c['newer_content'][:55]}...")
             print(f"  confidence: {c['confidence']:.2f}\n")
     print()
+
+
+def _show_goals(goal_layer: GoalUtilityLayer):
+    summary = goal_layer.get_goal_summary()
+    print(f"\n  ── Goal Performance ──")
+    for goal_id, data in summary.items():
+        bar_len = int(data["score"] * 20)
+        bar = "█" * bar_len + "░" * (20 - bar_len)
+        print(f"  {bar} {data['score']:.2f} {goal_id} ({data['trend']})")
+        print(f"    {data['description']}")
+    weakest = goal_layer.get_weakest_goal()
+    strongest = goal_layer.get_strongest_goal()
+    print(f"\n  Strongest: {strongest}")
+    print(f"  Needs work: {weakest}\n")
 
 
 def _clear_memory():

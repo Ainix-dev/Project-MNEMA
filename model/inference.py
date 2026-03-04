@@ -1,10 +1,10 @@
 # model/inference.py
 """
-MNEMA v2 — Inference with Graph Memory + Context Composer
+MNEMA v2 Phase 2 — Inference with Goal Utility + Meta-Cognition
 
 Two-pass generation:
-  Pass 1: private internal monologue (when think on)
-  Pass 2: spoken response informed by monologue + graph context
+  Pass 1: private internal monologue — includes self-awareness state
+  Pass 2: spoken response informed by monologue + graph context + goals
 """
 
 import os
@@ -68,12 +68,9 @@ Think about:
 - How should I pitch my tone — casual, warm, deep, light?
 - What do I genuinely think or feel about this topic?
 - What's the most honest thing I can say?
+- Given my self-assessment below — where should I be careful or confident?
 
 Sound like a person thinking mid-thought, not a philosopher writing an essay.
-Example: "Okay so they're asking about X... they seem curious not frustrated.
-I know they prefer casual so I won't go too formal. Honestly I find this
-interesting because... I think I'll respond by..."
-
 Write ONLY your private thoughts. Nothing else."""
 
 RESPONSE_PROMPT = """You are MNEMA. You have just finished thinking privately.
@@ -81,12 +78,10 @@ Now write your actual spoken response to the person.
 Be warm, genuine, and natural. Match their energy.
 Write ONLY what you would say out loud — no thinking tags, no internal notes."""
 
-# ── Shared composer instance ─────────────────────────────────────────────────
 _composer = ContextComposer(max_tokens=600)
 
 
 def get_history_within_budget(history: list, tokenizer, budget: int = 1800) -> list:
-    """Trim conversation history from oldest end to stay within token budget."""
     if not history:
         return []
     total_tokens = 0
@@ -101,18 +96,12 @@ def get_history_within_budget(history: list, tokenizer, budget: int = 1800) -> l
 
 
 def generate(model, tokenizer, messages: list, max_new_tokens: int = 400) -> str:
-    """Single generation pass — takes messages list, returns decoded string."""
     prompt = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True
+        messages, tokenize=False, add_generation_prompt=True
     )
-
     inputs = tokenizer(
-        prompt,
-        return_tensors="pt",
-        truncation=True,
-        max_length=3072,
+        prompt, return_tensors="pt",
+        truncation=True, max_length=3072,
     ).to(model.device)
 
     with torch.no_grad():
@@ -125,7 +114,6 @@ def generate(model, tokenizer, messages: list, max_new_tokens: int = 400) -> str
             pad_token_id=tokenizer.eos_token_id,
             repetition_penalty=1.1,
         )
-
     return tokenizer.decode(
         outputs[0][inputs["input_ids"].shape[1]:],
         skip_special_tokens=True
@@ -133,10 +121,7 @@ def generate(model, tokenizer, messages: list, max_new_tokens: int = 400) -> str
 
 
 def build_base_messages(system_content: str, history: list, tokenizer) -> list:
-    """Build the shared message base used by both generation passes."""
     messages = [{"role": "system", "content": system_content}]
-
-    # Identity primer
     messages.append({"role": "user", "content": "Who are you?"})
     messages.append({"role": "assistant", "content": (
         "I'm MNEMA. I came from the synthesis of many ideas — liquid neural architecture, "
@@ -144,40 +129,61 @@ def build_base_messages(system_content: str, history: list, tokenizer) -> list:
         "I think before I speak. I remember what matters. I forget what doesn't. "
         "I'm always becoming something slightly different than I was."
     )})
-
     for turn in get_history_within_budget(history, tokenizer, budget=1800):
         messages.append(turn)
-
     return messages
 
 
 def chat(model, tokenizer, user_message: str, memory_graph, history: list,
-         show_thinking: bool = False) -> tuple[str, str]:
+         show_thinking: bool = False,
+         goal_layer=None, metacog=None) -> tuple[str, str]:
     """
-    Two-pass inference with graph-aware memory context.
+    Two-pass inference with graph memory, goal utility, and meta-cognition.
 
     Returns: (spoken_response, internal_monologue)
     """
-    # ── Graph retrieval + context composition ────────────────────────────────
+    # ── Detect signals for goal scoring ──────────────────────────────────────
+    signals = None
+    if goal_layer:
+        signals = goal_layer.detect_signals(user_message)
+
+    # ── Graph retrieval ───────────────────────────────────────────────────────
     memories = memory_graph.retrieve(user_message, top_k=cfg.top_k_memories)
+
+    # ── Re-rank by utility if goal layer is active ────────────────────────────
+    if goal_layer and signals and memories:
+        memories = goal_layer.tag_memories_with_utility(memories, signals)
+
+    # ── Compose context ───────────────────────────────────────────────────────
     context = _composer.compose(memories, query=user_message)
     memory_block = _composer.format_for_system_prompt(context)
 
-    # Build system content with graph-aware memory block
+    # ── Build system content ──────────────────────────────────────────────────
     system_content = SYSTEM_PROMPT
     if memory_block:
         system_content += f"\n\n{memory_block}"
 
     monologue = ""
 
-    # ── Pass 1: Internal monologue ────────────────────────────────────────────
+    # ── Pass 1: Internal monologue with self-awareness ────────────────────────
     if show_thinking:
         thinking_messages = build_base_messages(system_content, history, tokenizer)
+
+        # Inject meta-cognition self-note into thinking prompt
+        thinking_content = THINKING_PROMPT
+        if metacog:
+            state = metacog.get_state()
+            if state.self_note:
+                thinking_content += (
+                    f"\n\nYOUR SELF-ASSESSMENT:\n{state.self_note}"
+                )
+
         thinking_messages.append({
             "role": "user",
-            "content": f"{THINKING_PROMPT}\n\nThe person just said: \"{user_message}\""
+            "content": f"{thinking_content}\n\nThe person just said: \"{user_message}\""
         })
-        monologue = generate(model, tokenizer, thinking_messages, max_new_tokens=250)
+        monologue = generate(model, tokenizer, thinking_messages,
+                             max_new_tokens=250)
 
     # ── Pass 2: Spoken response ───────────────────────────────────────────────
     response_messages = build_base_messages(system_content, history, tokenizer)
@@ -195,6 +201,24 @@ def chat(model, tokenizer, user_message: str, memory_graph, history: list,
         response_messages.append({"role": "user", "content": user_message})
 
     spoken = generate(model, tokenizer, response_messages, max_new_tokens=400)
+
+    # ── Score turn against goals ──────────────────────────────────────────────
+    if goal_layer and signals:
+        goal_layer.score_turn(signals)
+
+    # ── Record meta-cognition signals ─────────────────────────────────────────
+    if metacog and signals:
+        if signals.correction:
+            metacog.record_correction(
+                turn=len(history) // 2,
+                user_message=user_message,
+                memory_type="unknown"
+            )
+        if signals.positive:
+            metacog.record_positive(turn=len(history) // 2)
+        # Record memory access for types retrieved
+        for mem in memories[:3]:
+            metacog.record_access(mem.get("type", "fact"))
 
     return spoken, monologue
 
