@@ -39,7 +39,7 @@ Instead it implements four interlocking systems that mirror how biological cogni
 | **Adaptive State Core** | An 8-axis behavioral state vector evolves every turn — no backpropagation. Personality accumulates over time. |
 | **Meta-Cognition** | MNEMA tracks her own correction rate, confidence per memory type, and reliability. She knows what she doesn't know. |
 
-> **[Read the full research paper: MNEMA-v2-research.pdf](MNEMA-v2-research.pdf)**
+> **[Read the full research paper: MNEMA-v2-research.pdf](MNEMA-v2-research-2.pdf)**
 > **[MNEMA v1 (archived)](https://github.com/Ainix-dev/Project-MNEMA-v1)**
 
 ---
