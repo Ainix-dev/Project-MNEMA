@@ -110,6 +110,12 @@ def main():
 
             if user_input.lower() == "clear":
                 _clear_memory()
+                # Reinitialize all DB tables after wipe
+                memory_graph._init_db()
+                goal_layer._init_db()
+                metacog._init_db()
+                asc._init_db()
+                hardware._init_db()
                 print("  [Memory cleared]\n")
                 continue
 
